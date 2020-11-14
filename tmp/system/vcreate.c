@@ -2,13 +2,11 @@
 
 #include <xinu.h>
 
-int newpid();
-
 /*------------------------------------------------------------------------
  *  create  -  Create a process to start running a function on x86
  *------------------------------------------------------------------------
  */
-pid32	create(
+pid32	vcreate(
 	  void		*funcaddr,	/* Address of the function	*/
 	  uint32	ssize,		/* Stack size in bytes		*/
 	  pri16		priority,	/* Process priority > 0		*/
@@ -24,7 +22,8 @@ pid32	create(
 	int32		i;
 	uint32		*a;		/* Points to list of args	*/
 	uint32		*saddr;		/* Stack address		*/
-
+	uint32 dir_offset;
+	pd_t* pdbr_temp;
 	mask = disable();
 	if (ssize < MINSTK)
 		ssize = MINSTK;
@@ -35,6 +34,9 @@ pid32	create(
 		return SYSERR;
 	}
 
+// Change CR3 to the Kernel PDBR
+	write_cr3((unsigned long)PD_Base_Kernel);
+
 	prcount++;
 	prptr = &proctab[pid];
 
@@ -44,12 +46,15 @@ pid32	create(
 	prptr->prstkbase = (char *)saddr;
 	prptr->prstklen = ssize;
 	prptr->prname[PNMLEN-1] = NULLCH;
+	prptr->alloc_vir_pages = 0;
+	prptr->used_ffs_frames = 0;
+	prptr->user_process = TRUE;
+
 	for (i=0 ; i<PNMLEN-1 && (prptr->prname[i]=name[i])!=NULLCH; i++)
 		;
 	prptr->prsem = -1;
 	prptr->prparent = (pid32)getpid();
 	prptr->prhasmsg = FALSE;
-	prptr->prpdbr = PD_Base_System;
 
 	/* Set up stdin, stdout, and stderr descriptors for the shell	*/
 	prptr->prdesc[0] = CONSOLE;
@@ -94,29 +99,22 @@ pid32	create(
 	*--saddr = 0;			/* %esi */
 	*--saddr = 0;			/* %edi */
 	*pushsp = (unsigned long) (prptr->prstkptr = (char *)saddr);
+
+	/* creating processor's own virtual heap */
+	prptr->prpdbr = (pd_t *)getvirtualmem(PAGE_SIZE,&pt_memlist);
+	
+	pdbr_temp = prptr->prpdbr;
+	//kprintf("Vcreate %d BASE: %x\n",pid,pdbr_temp);
+	for(dir_offset=0;dir_offset<1024;dir_offset++)
+	{
+		pdbr_temp[dir_offset].pd_pres=0;
+		pdbr_temp[dir_offset].pd_avail=0;
+		pdbr_temp[dir_offset].pd_write=1;
+	}
+	map_xinu_area(prptr->prpdbr,XINU_PAGES,pid);
+	
+	write_cr3((unsigned long) proctab[currpid].prpdbr );
 	restore(mask);
 	return pid;
 }
 
-/*------------------------------------------------------------------------
- *  newpid  -  Obtain a new (free) process ID
- *------------------------------------------------------------------------
- */
-pid32	newpid(void)
-{
-	uint32	i;			/* Iterate through all processes*/
-	static	pid32 nextpid = 1;	/* Position in table to try or	*/
-					/*   one beyond end of table	*/
-
-	/* Check all NPROC slots */
-
-	for (i = 0; i < NPROC; i++) {
-		nextpid %= NPROC;	/* Wrap around to beginning */
-		if (proctab[nextpid].prstate == PR_FREE) {
-			return nextpid++;
-		} else {
-			nextpid++;
-		}
-	}
-	return (pid32) SYSERR;
-}

@@ -111,7 +111,7 @@ process vmalloc_process2(uint32 numPages, bool8 debug){
 
 		kprintf("\nP%d:: Making 3 allocations, %d pages each...\n", currpid, numPages);
 	}
-	kprintf("\nP%d:: Making 3 allocations, %d pages each...\n", currpid, numPages);
+
 	char *ptr1 = vmalloc(numPages * PAGE_SIZE);
 	char *ptr2 = vmalloc(numPages * PAGE_SIZE);
 	char *ptr3 = vmalloc(numPages * PAGE_SIZE);
